@@ -26,7 +26,7 @@ app.use((req, res, next) => {
 });
 
 // --- Config ---
-const JETTON_MASTER = process.env.JETTON_MASTER || 'EQB0qpljZl3xD0pbWPM3PCEn6bQfDe6Xx7a7W4qtBs45axmj';
+const JETTON_MASTER = process.env.JETTON_MASTER || 'EQCtJiXSoQPBRMh2yijkSyTZ1iqkj-uQRKvvaAUlkFLUwsS6';
 const CLAIM_AMOUNT = parseFloat(process.env.CLAIM_AMOUNT || '100');
 const TOKEN_DECIMALS = parseInt(process.env.TOKEN_DECIMALS || '9');
 const NETWORK = process.env.NETWORK || 'mainnet';
