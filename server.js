@@ -1,6 +1,5 @@
 // Jettoken Airdrop Backend
 // Mints your jettoken to users who claim via the frontend
-// Uses direct TonCenter HTTP API with API key
 
 require('dotenv').config();
 const express = require('express');
@@ -8,22 +7,13 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { Address, beginCell, toNano, WalletContractV5R1, internal } = require('@ton/ton');
+const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal } = require('@ton/ton');
 const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const app = express();
-
-// CORS - allow all origins
 app.use(cors());
 app.options('*', cors());
-
 app.use(express.json());
-
-// Request logging
-app.use((req, res, next) => {
-    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
-    next();
-});
 
 // --- Config ---
 const JETTON_MASTER = process.env.JETTON_MASTER || 'EQCtJiXSoQPBRMh2yijkSyTZ1iqkj-uQRKvvaAUlkFLUwsS6';
@@ -38,110 +28,52 @@ const API_ENDPOINT = NETWORK === 'testnet'
     ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
     : 'https://toncenter.com/api/v2/jsonRPC';
 
-// Token amount in smallest units (nano-jettons)
 const CLAIM_AMOUNT_NANO = BigInt(Math.floor(CLAIM_AMOUNT * Math.pow(10, TOKEN_DECIMALS)));
 
-// --- Claims database (simple JSON file) ---
+// --- Claims database ---
 const CLAIMS_FILE = path.join(__dirname, 'claims.json');
-
 function loadClaims() {
-    try {
-        if (fs.existsSync(CLAIMS_FILE)) {
-            return JSON.parse(fs.readFileSync(CLAIMS_FILE, 'utf8'));
-        }
-    } catch (e) {
-        console.error('Error loading claims:', e);
-    }
+    try { if (fs.existsSync(CLAIMS_FILE)) return JSON.parse(fs.readFileSync(CLAIMS_FILE, 'utf8')); }
+    catch (e) { console.error('Error loading claims:', e); }
     return { claims: [] };
 }
-
-function saveClaims(data) {
-    fs.writeFileSync(CLAIMS_FILE, JSON.stringify(data, null, 2));
-}
-
-function hasClaimed(address) {
+function saveClaims(data) { fs.writeFileSync(CLAIMS_FILE, JSON.stringify(data, null, 2)); }
+function hasClaimed(address) { return loadClaims().claims.some(c => c.address === address); }
+function recordClaim(address) {
     const data = loadClaims();
-    return data.claims.some(c => c.address === address);
-}
-
-function recordClaim(address, txHash) {
-    const data = loadClaims();
-    data.claims.push({
-        address: address,
-        amount: CLAIM_AMOUNT,
-        txHash: txHash || null,
-        timestamp: new Date().toISOString()
-    });
+    data.claims.push({ address, amount: CLAIM_AMOUNT, timestamp: new Date().toISOString() });
     saveClaims(data);
 }
 
-// --- TonCenter API helper ---
-const apiHeaders = {};
-if (TONCENTER_API_KEY) {
-    apiHeaders['X-API-Key'] = TONCENTER_API_KEY;
-}
-
-async function apiCall(method, params) {
-    const res = await axios.post(API_ENDPOINT, {
-        id: '1',
-        jsonrpc: '2.0',
-        method: method,
-        params: params
-    }, {
-        headers: apiHeaders,
-        timeout: 30000
-    });
-
-    if (res.data.error) {
-        throw new Error(`TonCenter API error: ${res.data.error.message}`);
-    }
-
-    return res.data.result;
-}
-
 // --- TON Client ---
+let client = null;
 let keyPair = null;
 let wallet = null;
 
 async function initTonClient() {
-    if (!MNEMONIC) {
-        console.error('ERROR: MNEMONIC not set in .env file!');
-        process.exit(1);
-    }
+    if (!MNEMONIC) { console.error('ERROR: MNEMONIC not set!'); process.exit(1); }
 
     keyPair = await mnemonicToPrivateKey(MNEMONIC.split(' '));
 
-    wallet = WalletContractV5R1.create({
-        workchain: 0,
-        publicKey: keyPair.publicKey,
+    client = new TonClient({
+        endpoint: API_ENDPOINT,
+        apiKey: TONCENTER_API_KEY || undefined,
     });
 
-    const addrBounceable = wallet.address.toString({ bounceable: true });
-    const addrNonBounceable = wallet.address.toString({ bounceable: false });
+    wallet = WalletContractV5R1.create({ workchain: 0, publicKey: keyPair.publicKey });
 
-    console.log('=== WALLET ADDRESS CHECK ===');
-    console.log('Derived bounceable:    ', addrBounceable);
-    console.log('Derived non-bounceable:', addrNonBounceable);
-    console.log('Expected admin (UQ..): UQCJmo1HaZvAUcH470zv9xZepEjvyuIfO9yrEq4_FlzOK-aW');
-    console.log('Match:', addrNonBounceable === 'UQCJmo1HaZvAUcH470zv9xZepEjvyuIfO9yrEq4_FlzOK-aW' ? 'YES ✅' : 'NO ❌');
-    console.log('=============================');
-
+    const addr = wallet.address.toString();
+    console.log('Admin wallet address:', addr);
     console.log('Jetton Master:', JETTON_MASTER);
-    console.log('Claim amount:', CLAIM_AMOUNT, 'tokens');
-    console.log('Network:', NETWORK);
-    console.log('API key set:', TONCENTER_API_KEY ? 'YES' : 'NO (free tier)');
-    console.log('Endpoint:', API_ENDPOINT);
+    console.log('Claim amount:', CLAIM_AMOUNT);
 
-    // Test API connection
+    // Test connection
     try {
-        const state = await apiCall('getAddressInformation', { address: wallet.address.toString() });
-        console.log('Wallet state:', state);
+        const state = await client.getContractState(wallet.address);
+        console.log('Wallet balance:', state.balance);
+        console.log('Wallet state:', state.state);
     } catch (e) {
         console.error('API test failed:', e.message);
-        if (e.message.includes('429') || e.message.includes('rate')) {
-            console.error('ERROR: Rate limited by TonCenter. Add TONCENTER_API_KEY!');
-            process.exit(1);
-        }
     }
 }
 
@@ -160,38 +92,18 @@ function buildMintBody(receiverAddress) {
         .storeBit(0)
         .endCell();
 
-    const mintBody = beginCell()
+    return beginCell()
         .storeUint(0x642b7d07, 32)
         .storeUint(0, 64)
         .storeAddress(receiverAddr)
         .storeCoins(toNano('0.05'))
         .storeRef(internalTransfer)
         .endCell();
-
-    return mintBody;
-}
-
-// --- Get seqno via API ---
-async function getSeqno(address) {
-    console.log('Getting seqno for:', address.toString());
-    // Use getWalletInformation which works for all wallet versions
-    const result = await axios.get(
-        API_ENDPOINT.replace('/jsonRPC', '/getWalletInformation') + '?address=' + encodeURIComponent(address.toString()),
-        { headers: apiHeaders, timeout: 30000 }
-    );
-    if (result.data.error) {
-        throw new Error('Wallet info error: ' + result.data.error);
-    }
-    const seqno = result.data.result.seqno || 0;
-    console.log('Seqno:', seqno);
-    return seqno;
 }
 
 // --- Send Mint Transaction ---
 async function sendMint(receiverAddress) {
-    if (!wallet || !keyPair) {
-        throw new Error('TON client not initialized');
-    }
+    if (!client || !wallet || !keyPair) throw new Error('Not initialized');
 
     const mintBody = buildMintBody(receiverAddress);
     const jettonMasterAddr = Address.parse(JETTON_MASTER);
@@ -204,144 +116,94 @@ async function sendMint(receiverAddress) {
     });
 
     try {
-        const seqno = await getSeqno(wallet.address);
-        console.log('Building transfer with seqno:', seqno);
+        const provider = client.provider(wallet.address);
+        console.log('Getting seqno...');
 
+        // Get seqno via getWalletInformation
+        const walletInfo = await axios.get(
+            API_ENDPOINT.replace('/jsonRPC', '/getWalletInformation') + '?address=' + encodeURIComponent(wallet.address.toString()),
+            { headers: TONCENTER_API_KEY ? { 'X-API-Key': TONCENTER_API_KEY } : {}, timeout: 30000 }
+        );
+        const seqno = walletInfo.data.result?.seqno || 0;
+        console.log('Seqno:', seqno);
+
+        console.log('Building transfer...');
         const transfer = wallet.createTransfer({
             seqno: seqno,
             secretKey: keyPair.secretKey,
             messages: [msg]
         });
 
-        const boc = transfer.toBoc().toString('base64');
-        console.log('Sending BOC to blockchain...');
+        console.log('Sending transaction...');
+        await provider.external(transfer);
+        console.log('Transaction sent!');
 
-        await apiCall('sendBoc', { boc: boc });
-        console.log('Transaction sent successfully');
-
-        // Wait for confirmation
-        let attempts = 0;
-        const startSeqno = seqno;
-        while (attempts < 30) {
-            await sleep(3000);
+        // Wait confirmation
+        for (let i = 0; i < 30; i++) {
+            await new Promise(r => setTimeout(r, 3000));
             try {
-                const newSeqno = await getSeqno(wallet.address);
-                if (newSeqno > startSeqno) {
-                    console.log('Transaction confirmed! New seqno:', newSeqno);
+                const newInfo = await axios.get(
+                    API_ENDPOINT.replace('/jsonRPC', '/getWalletInformation') + '?address=' + encodeURIComponent(wallet.address.toString()),
+                    { headers: TONCENTER_API_KEY ? { 'X-API-Key': TONCENTER_API_KEY } : {}, timeout: 10000 }
+                );
+                const newSeqno = newInfo.data.result?.seqno || 0;
+                if (newSeqno > seqno) {
+                    console.log('Confirmed! New seqno:', newSeqno);
                     return true;
                 }
-            } catch (e) {
-                console.warn('Wait error:', e.message);
-            }
-            attempts++;
+            } catch (e) { /* ignore */ }
         }
-
-        console.log('Transaction sent but confirmation timed out');
+        console.log('Sent (not confirmed yet)');
         return true;
 
     } catch (error) {
         console.error('SEND MINT ERROR:', error.message);
-        console.error('Full error:', error.stack);
         throw error;
     }
 }
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // --- API Endpoints ---
-
-// Claim tokens
 app.post('/api/claim', async (req, res) => {
     try {
         const { address } = req.body;
-
-        if (!address) {
-            return res.status(400).json({ error: 'Address is required' });
-        }
+        if (!address) return res.status(400).json({ error: 'Address required' });
 
         let parsedAddr;
-        try {
-            parsedAddr = Address.parse(address);
-        } catch (e) {
-            return res.status(400).json({ error: 'Invalid TON address' });
-        }
+        try { parsedAddr = Address.parse(address); }
+        catch (e) { return res.status(400).json({ error: 'Invalid TON address' }); }
 
         const normalizedAddr = parsedAddr.toString();
-
         if (hasClaimed(normalizedAddr)) {
             return res.status(400).json({ error: 'Already claimed', alreadyClaimed: true });
         }
 
-        console.log(`Minting ${CLAIM_AMOUNT} tokens to ${normalizedAddr}...`);
-
-        const success = await sendMint(normalizedAddr);
-
-        if (success) {
-            recordClaim(normalizedAddr, null);
-            return res.json({
-                success: true,
-                amount: CLAIM_AMOUNT,
-                message: `${CLAIM_AMOUNT} jettokens sent to your wallet!`
-            });
-        } else {
-            return res.status(500).json({ error: 'Mint transaction failed' });
-        }
+        console.log('Minting', CLAIM_AMOUNT, 'to', normalizedAddr);
+        await sendMint(normalizedAddr);
+        recordClaim(normalizedAddr);
+        return res.json({ success: true, amount: CLAIM_AMOUNT, message: 'Tokens sent!' });
 
     } catch (error) {
-        console.error('Claim error:', error);
+        console.error('Claim error:', error.message);
         return res.status(500).json({ error: 'Internal server error: ' + error.message });
     }
 });
 
-// Check claim status
 app.get('/api/status/:address', async (req, res) => {
     try {
-        const { address } = req.params;
-        let parsedAddr;
-        try {
-            parsedAddr = Address.parse(address);
-        } catch (e) {
-            return res.status(400).json({ error: 'Invalid TON address' });
-        }
-
-        const normalizedAddr = parsedAddr.toString();
-        const claimed = hasClaimed(normalizedAddr);
-
-        res.json({
-            address: normalizedAddr,
-            claimed: claimed,
-            claimAmount: CLAIM_AMOUNT
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        const parsedAddr = Address.parse(req.params.address);
+        res.json({ address: parsedAddr.toString(), claimed: hasClaimed(parsedAddr.toString()), claimAmount: CLAIM_AMOUNT });
+    } catch (e) { res.status(400).json({ error: 'Invalid address' }); }
 });
 
-// Health check
 app.get('/api/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        jettonMaster: JETTON_MASTER,
-        claimAmount: CLAIM_AMOUNT,
-        network: NETWORK,
-        totalClaims: loadClaims().claims.length
-    });
+    res.json({ status: 'ok', jettonMaster: JETTON_MASTER, claimAmount: CLAIM_AMOUNT, totalClaims: loadClaims().claims.length });
 });
 
-// --- Start Server ---
+// --- Start ---
 async function start() {
     await initTonClient();
     app.listen(PORT, () => {
-        console.log(`\n🚀 Jettoken Airdrop Backend running on port ${PORT}`);
-        console.log(`   Health: http://localhost:${PORT}/api/health`);
-        console.log(`   Claim:  POST http://localhost:${PORT}/api/claim`);
-        console.log(`   Status: GET  http://localhost:${PORT}/api/status/:address`);
+        console.log(`🚀 Server on port ${PORT}`);
     });
 }
-
-start().catch(err => {
-    console.error('Failed to start server:', err);
-    process.exit(1);
-});
+start().catch(err => { console.error(err); process.exit(1); });
