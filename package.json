@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@ton/ton": "^15.0.0",
-    "@ton/core": "^0.56.0",
+    "@ton/core": "^0.62.0",
     "@ton/crypto": "^3.2.0",
     "express": "^4.21.0",
     "cors": "^2.8.5",
