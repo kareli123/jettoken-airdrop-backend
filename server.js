@@ -83,13 +83,15 @@ async function initTonClient() {
     // Derive key pair from mnemonic
     keyPair = await mnemonicToPrivateKey(MNEMONIC.split(' '));
 
-    // Use public TON JSON-RPC endpoint (ORBS TON Access)
+    // Use TonCenter API (with API key for higher limits)
     const endpoint = NETWORK === 'testnet'
-        ? 'https://ton.access.orbs.network/44A27c4F7290d4bf44c5216A263Ab957722D5F72/1/testnet/toncenter-api-v2/jsonRPC'
-        : 'https://ton.access.orbs.network/44A27c4F7290d4bf44c5216A263Ab957722D5F72/1/mainnet/toncenter-api-v2/jsonRPC';
+        ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
+        : 'https://toncenter.com/api/v2/jsonRPC';
+    const apiKey = process.env.TONCENTER_API_KEY || undefined;
     console.log('Using endpoint:', endpoint);
+    console.log('API key set:', apiKey ? 'YES' : 'NO (free tier)');
 
-    client = new TonClient({ endpoint });
+    client = new TonClient({ endpoint, apiKey });
 
     // Create wallet contract
     wallet = WalletContractV5R1.create({
