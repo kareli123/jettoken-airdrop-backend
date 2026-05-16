@@ -1,6 +1,6 @@
 {
   "name": "jetton-airdrop-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend for Jettoken airdrop - mints tokens to users",
   "main": "server.js",
   "scripts": {
