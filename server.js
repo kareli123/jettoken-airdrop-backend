@@ -8,7 +8,6 @@ const fs = require('fs');
 const path = require('path');
 const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal } = require('@ton/ton');
 const { mnemonicToPrivateKey } = require('@ton/crypto');
-const { getHttpEndpoint } = require('@ton/ton');
 
 const app = express();
 app.use(cors());
@@ -63,7 +62,6 @@ function recordClaim(address, txHash) {
 let client = null;
 let keyPair = null;
 let wallet = null;
-let sender = null;
 
 async function initTonClient() {
     if (!MNEMONIC) {
@@ -135,31 +133,41 @@ async function sendMint(receiverAddress) {
     const jettonMasterAddr = Address.parse(JETTON_MASTER);
 
     // Create internal message to jetton master
-    const body = internal({
+    const msg = internal({
         to: jettonMasterAddr,
         value: toNano('0.06'),           // 0.06 TON for gas + forward
         bounce: true,
         body: mintBody,
     });
 
-    // Send via wallet
+    // Get provider and seqno
     const provider = client.provider(wallet.address);
-    sender = wallet.sender(provider, keyPair.secretKey);
+    const seqno = await wallet.getSeqno(provider);
+    console.log('Current seqno:', seqno);
 
-    // Get seqno
-    const seqno = await client.getSeqno(wallet.address);
+    // Build transfer
+    const transfer = await wallet.createTransfer({
+        seqno: seqno,
+        secretKey: keyPair.secretKey,
+        messages: [msg]
+    });
 
-    // Send transaction
-    await client.sendExternalMessage(wallet, body);
+    // Send external message
+    await provider.external(transfer);
+    console.log('Mint transaction sent, waiting confirmation...');
 
-    // Wait for confirmation (simple approach)
+    // Wait for confirmation
     let attempts = 0;
     while (attempts < 30) {
         await sleep(3000);
-        const newSeqno = await client.getSeqno(wallet.address).catch(() => seqno);
-        if (newSeqno > seqno) {
-            console.log('Transaction confirmed! Seqno:', newSeqno);
-            return true;
+        try {
+            const newSeqno = await wallet.getSeqno(provider);
+            if (newSeqno > seqno) {
+                console.log('Transaction confirmed! Seqno:', newSeqno);
+                return true;
+            }
+        } catch (e) {
+            // ignore errors during wait
         }
         attempts++;
     }
