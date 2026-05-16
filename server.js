@@ -11,12 +11,9 @@ const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const app = express();
 
-// CORS for GitHub Pages
-app.use(cors({
-    origin: ['https://kareli123.github.io', 'http://localhost:3000', 'http://localhost:8080'],
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type']
-}));
+// CORS - allow all origins
+app.use(cors());
+app.options('*', cors());
 
 app.use(express.json());
 
