@@ -83,10 +83,10 @@ async function initTonClient() {
     // Derive key pair from mnemonic
     keyPair = await mnemonicToPrivateKey(MNEMONIC.split(' '));
 
-    // Use direct TON endpoint
+    // Use public TON JSON-RPC endpoint (ORBS TON Access)
     const endpoint = NETWORK === 'testnet'
-        ? 'https://testnet.tonapi.io/v2/jsonRPC'
-        : 'https://tonapi.io/v2/jsonRPC';
+        ? 'https://ton.access.orbs.network/44A27c4F7290d4bf44c5216A263Ab957722D5F72/1/testnet/toncenter-api-v2/jsonRPC'
+        : 'https://ton.access.orbs.network/44A27c4F7290d4bf44c5216A263Ab957722D5F72/1/mainnet/toncenter-api-v2/jsonRPC';
     console.log('Using endpoint:', endpoint);
 
     client = new TonClient({ endpoint });
