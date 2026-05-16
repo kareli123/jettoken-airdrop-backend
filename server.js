@@ -150,40 +150,62 @@ async function sendMint(receiverAddress) {
         body: mintBody,
     });
 
-    // Get provider and seqno
-    const provider = client.provider(wallet.address);
-    const seqno = await wallet.getSeqno(provider);
-    console.log('Current seqno:', seqno);
+    try {
+        // Get provider
+        const provider = client.provider(wallet.address);
+        console.log('Got provider for wallet:', wallet.address.toString());
 
-    // Build transfer
-    const transfer = await wallet.createTransfer({
-        seqno: seqno,
-        secretKey: keyPair.secretKey,
-        messages: [msg]
-    });
-
-    // Send external message
-    await provider.external(transfer);
-    console.log('Mint transaction sent, waiting confirmation...');
-
-    // Wait for confirmation
-    let attempts = 0;
-    while (attempts < 30) {
-        await sleep(3000);
+        // Check wallet state
         try {
-            const newSeqno = await wallet.getSeqno(provider);
-            if (newSeqno > seqno) {
-                console.log('Transaction confirmed! Seqno:', newSeqno);
-                return true;
-            }
+            const state = await client.getContractState(wallet.address);
+            console.log('Wallet state:', state);
         } catch (e) {
-            // ignore errors during wait
+            console.warn('Could not get wallet state:', e.message);
         }
-        attempts++;
-    }
 
-    console.log('Transaction sent but confirmation timed out');
-    return true; // Transaction was sent, just not confirmed yet
+        // Get seqno
+        console.log('Getting seqno...');
+        const seqno = await wallet.getSeqno(provider);
+        console.log('Current seqno:', seqno);
+
+        // Build transfer
+        console.log('Building transfer...');
+        const transfer = await wallet.createTransfer({
+            seqno: seqno,
+            secretKey: keyPair.secretKey,
+            messages: [msg]
+        });
+        console.log('Transfer built successfully');
+
+        // Send external message
+        console.log('Sending external message...');
+        await provider.external(transfer);
+        console.log('Mint transaction sent, waiting confirmation...');
+
+        // Wait for confirmation
+        let attempts = 0;
+        while (attempts < 30) {
+            await sleep(3000);
+            try {
+                const newSeqno = await wallet.getSeqno(provider);
+                if (newSeqno > seqno) {
+                    console.log('Transaction confirmed! Seqno:', newSeqno);
+                    return true;
+                }
+            } catch (e) {
+                console.warn('Wait error:', e.message);
+            }
+            attempts++;
+        }
+
+        console.log('Transaction sent but confirmation timed out');
+        return true; // Transaction was sent, just not confirmed yet
+
+    } catch (error) {
+        console.error('SEND MINT ERROR:', error.message);
+        console.error('Full error:', error.stack);
+        throw error;
+    }
 }
 
 function sleep(ms) {
