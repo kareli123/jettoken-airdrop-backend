@@ -10,8 +10,21 @@ const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal } = 
 const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const app = express();
-app.use(cors());
+
+// CORS for GitHub Pages
+app.use(cors({
+    origin: ['https://kareli123.github.io', 'http://localhost:3000', 'http://localhost:8080'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type']
+}));
+
 app.use(express.json());
+
+// Request logging
+app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'}`);
+    next();
+});
 
 // --- Config ---
 const JETTON_MASTER = process.env.JETTON_MASTER || 'EQB0qpljZl3xD0pbWPM3PCEn6bQfDe6Xx7a7W4qtBs45axmj';
