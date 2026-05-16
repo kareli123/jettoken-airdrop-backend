@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal } = require('@ton/ton');
+const { TonClient, Address, beginCell, toNano, WalletContractV4, internal } = require('@ton/ton');
 const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const app = express();
@@ -93,8 +93,8 @@ async function initTonClient() {
 
     client = new TonClient({ endpoint, apiKey });
 
-    // Create wallet contract
-    wallet = WalletContractV5R1.create({
+    // Create wallet contract (V4R2 - most common)
+    wallet = WalletContractV4.create({
         workchain: 0,
         publicKey: keyPair.publicKey,
     });
