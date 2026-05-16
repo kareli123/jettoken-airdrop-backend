@@ -6,7 +6,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal } = require('@ton/ton');
+const { TonClient, Address, beginCell, toNano, WalletContractV5R1, internal, getHttpEndpoint } = require('@ton/ton');
 const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const app = express();
@@ -73,14 +73,13 @@ async function initTonClient() {
     // Derive key pair from mnemonic
     keyPair = await mnemonicToPrivateKey(MNEMONIC.split(' '));
 
-    // Create TON client
-    const endpoint = NETWORK === 'testnet'
-        ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
-        : 'https://toncenter.com/api/v2/jsonRPC';
+    // Get public TON endpoint (no API key needed, better rate limits)
+    console.log('Getting TON endpoint...');
+    const endpoint = await getHttpEndpoint({ network: NETWORK });
+    console.log('Using endpoint:', endpoint);
 
     client = new TonClient({
         endpoint: endpoint,
-        apiKey: process.env.TONCENTER_API_KEY || undefined,
     });
 
     // Create wallet contract
