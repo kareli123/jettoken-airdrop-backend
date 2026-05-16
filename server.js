@@ -2,7 +2,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '.env') });
 
 const http = require('http');
 const { Address, beginCell, internal, toNano } = require('@ton/core');
-const { TonClient, WalletContractV4 } = require('@ton/ton');
+const { TonClient, WalletContractV4, WalletContractV5R1 } = require('@ton/ton');
 const { mnemonicToPrivateKey } = require('@ton/crypto');
 
 const JETTON_TRANSFER_OP = 0x0f8a7ea5;
@@ -146,24 +146,41 @@ function buildJettonTransferBody({ queryId, amount, recipient, responseAddress, 
         .endCell();
 }
 
+function createWallet(publicKey, version) {
+    if (version === 'v5r1' && WalletContractV5R1) {
+        return WalletContractV5R1.create({ workchain: 0, publicKey });
+    }
+    return WalletContractV4.create({ workchain: 0, publicKey });
+}
+
 async function sendJettonAirdrop(recipientAddress) {
     const config = getConfig();
+    const walletVersion = process.env.WALLET_VERSION || 'v5r1';
+    console.log('[airdrop] Starting claim for', recipientAddress);
+    console.log('[airdrop] Wallet version:', walletVersion);
+
     const client = new TonClient({
         endpoint: config.endpoint,
         apiKey: config.apiKey,
     });
 
     const keyPair = await mnemonicToPrivateKey(getMnemonicWords());
-    const wallet = WalletContractV4.create({
-        workchain: 0,
-        publicKey: keyPair.publicKey,
-    });
+    const wallet = createWallet(keyPair.publicKey, walletVersion);
     const walletContract = client.open(wallet);
     const senderAddress = wallet.address;
+    console.log('[airdrop] Sender wallet:', senderAddress.toString());
+
     const jettonMaster = Address.parse(config.jettonMaster);
     const recipient = Address.parse(recipientAddress);
+
+    console.log('[airdrop] Getting sender jetton wallet address...');
     const senderJettonWallet = await getJettonWalletAddress(client, jettonMaster, senderAddress);
+    console.log('[airdrop] Sender jetton wallet:', senderJettonWallet.toString());
+
+    console.log('[airdrop] Getting seqno...');
     const seqno = await walletContract.getSeqno();
+    console.log('[airdrop] Seqno:', seqno);
+
     const queryId = BigInt(Date.now());
 
     const body = buildJettonTransferBody({
@@ -174,6 +191,7 @@ async function sendJettonAirdrop(recipientAddress) {
         forwardTonAmount: toNano(config.forwardTonAmount),
     });
 
+    console.log('[airdrop] Sending transfer, amount:', config.claimAmount.toString(), 'to:', recipient.toString());
     await walletContract.sendTransfer({
         secretKey: keyPair.secretKey,
         seqno,
