@@ -116,7 +116,16 @@ async function initTonClient() {
         publicKey: keyPair.publicKey,
     });
 
-    console.log('Admin wallet address:', wallet.address.toString());
+    const addrBounceable = wallet.address.toString({ bounceable: true });
+    const addrNonBounceable = wallet.address.toString({ bounceable: false });
+
+    console.log('=== WALLET ADDRESS CHECK ===');
+    console.log('Derived bounceable:    ', addrBounceable);
+    console.log('Derived non-bounceable:', addrNonBounceable);
+    console.log('Expected admin (UQ..): UQCJmo1HaZvAUcH470zv9xZepEjvyuIfO9yrEq4_FlzOK-aW');
+    console.log('Match:', addrNonBounceable === 'UQCJmo1HaZvAUcH470zv9xZepEjvyuIfO9yrEq4_FlzOK-aW' ? 'YES ✅' : 'NO ❌');
+    console.log('=============================');
+
     console.log('Jetton Master:', JETTON_MASTER);
     console.log('Claim amount:', CLAIM_AMOUNT, 'tokens');
     console.log('Network:', NETWORK);
@@ -165,12 +174,15 @@ function buildMintBody(receiverAddress) {
 // --- Get seqno via API ---
 async function getSeqno(address) {
     console.log('Getting seqno for:', address.toString());
-    const result = await apiCall('runGetMethod', {
-        address: address.toString(),
-        method: 'seqno',
-        stack: []
-    });
-    const seqno = parseInt(result.stack[0][1], 16);
+    // Use getWalletInformation which works for all wallet versions
+    const result = await axios.get(
+        API_ENDPOINT.replace('/jsonRPC', '/getWalletInformation') + '?address=' + encodeURIComponent(address.toString()),
+        { headers: apiHeaders, timeout: 30000 }
+    );
+    if (result.data.error) {
+        throw new Error('Wallet info error: ' + result.data.error);
+    }
+    const seqno = result.data.result.seqno || 0;
     console.log('Seqno:', seqno);
     return seqno;
 }
